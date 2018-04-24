@@ -1,15 +1,18 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"flag"
+	"io/ioutil"
 	"log"
 	"os"
 
 	"github.com/pressly/goose"
 
 	// Init DB drivers.
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/ziutek/mymysql/godrv"
@@ -18,6 +21,11 @@ import (
 var (
 	flags = flag.NewFlagSet("goose", flag.ExitOnError)
 	dir   = flags.String("dir", ".", "directory with migration files")
+
+	tlsName    = flags.String("tlsname", "", "name of the TLS cert")
+	caCert     = flags.String("cacert", "", "CA Cert file")
+	clientCert = flags.String("clientcert", "", "Client Cert file")
+	clientKey  = flags.String("clientkey", "", "Client Key file")
 )
 
 func main() {
@@ -43,6 +51,18 @@ func main() {
 		return
 	}
 
+	if *caCert != "" || *clientCert != "" || *clientKey != "" || *tlsName != "" {
+		if args[0] != "mysql" {
+			log.Fatal("cacert, clientcert, clientkey flags should only be set if the driver is mysql")
+		}
+
+		if *caCert == "" || *clientCert == "" || *clientKey == "" || *tlsName == "" {
+			log.Fatal("cacert, cliencert, clientkey all need to be set in order to enable mysql tls connections")
+		}
+
+		setupTLS()
+	}
+
 	driver, dbstring, command := args[0], args[1], args[2]
 
 	if err := goose.SetDialect(driver); err != nil {
@@ -52,7 +72,7 @@ func main() {
 	switch driver {
 	case "redshift":
 		driver = "postgres"
-	case  "tidb":
+	case "tidb":
 		driver = "mysql"
 	}
 
@@ -120,3 +140,28 @@ Commands:
     create NAME [sql|go] Creates new migration file with next version
 `
 )
+
+func setupTLS() {
+	// Load CA into cert pool
+	pemEncryptedCACert, err := ioutil.ReadFile(*caCert)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	rootCertPool := x509.NewCertPool()
+	if ok := rootCertPool.AppendCertsFromPEM(pemEncryptedCACert); !ok {
+		log.Fatal(err)
+	}
+	// Load cert/key into certificate
+	clientCert, err := tls.LoadX509KeyPair(*clientCert, *clientKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Create and register tls Config for use by mysql
+	mysql.RegisterTLSConfig(*tlsName, &tls.Config{
+		RootCAs:      rootCertPool,
+		Certificates: []tls.Certificate{clientCert},
+	})
+
+	log.Println("tls enabled")
+}
