@@ -22,10 +22,11 @@ var (
 	flags = flag.NewFlagSet("goose", flag.ExitOnError)
 	dir   = flags.String("dir", ".", "directory with migration files")
 
-	tlsName    = flags.String("tlsname", "", "name of the TLS cert")
-	caCert     = flags.String("cacert", "", "CA Cert file")
-	clientCert = flags.String("clientcert", "", "Client Cert file")
-	clientKey  = flags.String("clientkey", "", "Client Key file")
+	tlsName       = flags.String("tlsname", "", "name of the TLS cert")
+	caCert        = flags.String("cacert", "", "CA Cert file")
+	clientCert    = flags.String("clientcert", "", "Client Cert file")
+	clientKey     = flags.String("clientkey", "", "Client Key file")
+	useClientCert = flags.Bool("useclientcert", false, "Use client cert to connect")
 )
 
 func main() {
@@ -56,8 +57,8 @@ func main() {
 			log.Fatal("cacert, clientcert, clientkey flags should only be set if the driver is mysql")
 		}
 
-		if *caCert == "" || *clientCert == "" || *clientKey == "" || *tlsName == "" {
-			log.Fatal("cacert, cliencert, clientkey all need to be set in order to enable mysql tls connections")
+		if (*caCert == "" || *tlsName == "") || ((*clientCert == "" || *clientKey == "") && *useClientCert) {
+			log.Fatal("cacert needs to always be set and client cert/key needs to be set if using clientcert")
 		}
 
 		setupTLS()
@@ -152,15 +153,19 @@ func setupTLS() {
 	if ok := rootCertPool.AppendCertsFromPEM(pemEncryptedCACert); !ok {
 		log.Fatal(err)
 	}
-	// Load cert/key into certificate
-	clientCert, err := tls.LoadX509KeyPair(*clientCert, *clientKey)
-	if err != nil {
-		log.Fatal(err)
+	clientCerts := make([]tls.Certificate, 0, 1)
+	if *useClientCert {
+		// Load cert/key into certificate
+		clientCert, err := tls.LoadX509KeyPair(*clientCert, *clientKey)
+		if err != nil {
+			log.Fatal(err)
+		}
+		clientCerts = append(clientCerts, clientCert)
 	}
 	// Create and register tls Config for use by mysql
 	mysql.RegisterTLSConfig(*tlsName, &tls.Config{
 		RootCAs:      rootCertPool,
-		Certificates: []tls.Certificate{clientCert},
+		Certificates: clientCerts,
 	})
 
 	log.Println("tls enabled")
