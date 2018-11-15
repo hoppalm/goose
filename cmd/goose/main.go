@@ -21,6 +21,7 @@ import (
 var (
 	flags = flag.NewFlagSet("goose", flag.ExitOnError)
 	dir   = flags.String("dir", ".", "directory with migration files")
+	dbTableName  = flags.String("dbtablename", "goose_db_version", "optional set table to use to write and read version from")
 
 	tlsName       = flags.String("tlsname", "", "name of the TLS cert")
 	caCert        = flags.String("cacert", "", "CA Cert file")
@@ -38,7 +39,7 @@ func main() {
 		flags.Usage()
 		return
 	}
-
+	goose.SetTableName(*dbTableName)
 	switch args[0] {
 	case "create":
 		if err := goose.Run("create", nil, *dir, args[1:]...); err != nil {
